@@ -15,11 +15,25 @@ import {Currency, CurrencyLibrary} from "../lib/uniswap-hooks/lib/v4-core/src/ty
 import {CurrencySettler} from "../lib/uniswap-hooks/src/utils/CurrencySettler.sol";
 import {SafeCast} from "../lib/uniswap-hooks/lib/v4-core/src/libraries/SafeCast.sol";
 
+interface ICustomCurve {
+    function getAmountInForExactOutput(uint256 amountOut, address input, address output, bool zeroForOne)
+        external
+        returns (uint256);
+
+    function getAmountOutFromExactInput(uint256 amountIn, address input, address output, bool zeroForOne)
+        external
+        returns (uint256);
+}
+
 contract CustomCurveHook is BaseHook {
     using CurrencyLibrary for Currency;
     using SafeCast for uint256;
 
-    constructor(IPoolManager _poolManager) BaseHook(_poolManager) {}
+    ICustomCurve _customCurve;
+
+    constructor(IPoolManager _poolManager, ICustomCurve _customCurveContract) BaseHook(_poolManager) {
+        _customCurve = _customCurveContract;
+    }
 
     function getHookPermissions() public pure override returns (Hooks.Permissions memory) {
         return Hooks.Permissions({
@@ -58,8 +72,12 @@ contract CustomCurveHook is BaseHook {
         if (exactInput) {
             // in exact-input swaps, the specified token is a debt that gets paid down by the swapper
             // the unspecified token is credited to the PoolManager, that is claimed by the swapper
-            unspecifiedAmount = getAmountOutFromExactInput(specifiedAmount, specified, unspecified, params.zeroForOne);
+            unspecifiedAmount = _customCurve.getAmountOutFromExactInput(
+                specifiedAmount, Currency.unwrap(specified), Currency.unwrap(unspecified), params.zeroForOne
+            );
+
             CurrencySettler.take(specified, poolManager, address(this), specifiedAmount, true);
+
             CurrencySettler.settle(unspecified, poolManager, address(this), unspecifiedAmount, true);
 
             returnDelta = toBeforeSwapDelta(specifiedAmount.toInt128(), -unspecifiedAmount.toInt128());
@@ -67,7 +85,10 @@ contract CustomCurveHook is BaseHook {
             // exactOutput
             // in exact-output swaps, the unspecified token is a debt that gets paid down by the swapper
             // the specified token is credited to the PoolManager, that is claimed by the swapper
-            unspecifiedAmount = getAmountInForExactOutput(specifiedAmount, unspecified, specified, params.zeroForOne);
+            unspecifiedAmount = _customCurve.getAmountInForExactOutput(
+                specifiedAmount, Currency.unwrap(unspecified), Currency.unwrap(specified), params.zeroForOne
+            );
+
             CurrencySettler.take(unspecified, poolManager, address(this), unspecifiedAmount, true);
             CurrencySettler.settle(specified, poolManager, address(this), specifiedAmount, true);
 
@@ -85,26 +106,6 @@ contract CustomCurveHook is BaseHook {
         returns (bytes4)
     {
         revert("No v4 Liquidity allowed");
-    }
-
-    /// @notice Returns the amount of output tokens for an exact-input swap.
-    function getAmountOutFromExactInput(uint256 amountIn, Currency, Currency, bool)
-        internal
-        pure
-        returns (uint256 amountOut)
-    {
-        // in constant-sum curve, tokens trade exactly 1:1
-        amountOut = amountIn;
-    }
-
-    /// @notice Returns the amount of input tokens for an exact-output swap.
-    function getAmountInForExactOutput(uint256 amountOut, Currency, Currency, bool)
-        internal
-        pure
-        returns (uint256 amountIn)
-    {
-        // in constant-sum curve, tokens trade exactly 1:1
-        amountIn = amountOut;
     }
 
     /// @notice Add liquidity through the hook

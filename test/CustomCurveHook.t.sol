@@ -10,6 +10,8 @@ import {IHooks} from "../lib/uniswap-hooks/lib/v4-core/src/interfaces/IHooks.sol
 import {LPFeeLibrary} from "../lib/uniswap-hooks/lib/v4-core/src/libraries/LPFeeLibrary.sol";
 import {PoolSwapTest} from "../lib/uniswap-hooks/lib/v4-core/src/test/PoolSwapTest.sol";
 
+import {MockCurve} from "./MockCurve.sol";
+
 contract CustomCurveHookTest is Test, Deployers {
     CustomCurveHook hook;
 
@@ -22,7 +24,11 @@ contract CustomCurveHookTest is Test, Deployers {
             )
         );
 
-        deployCodeTo("CustomCurveHook.sol:CustomCurveHook", abi.encode(manager), address(hook));
+        // Deploy mocked Custom Curve contract
+        address customCurveContract = 0x5FbDB2315678afecb367f032d93F642f64180aa3;
+        deployCodeTo("MockCurve.sol:MockCurve", abi.encode(), customCurveContract);
+
+        deployCodeTo("CustomCurveHook.sol:CustomCurveHook", abi.encode(manager, customCurveContract), address(hook));
 
         deployMintAndApprove2Currencies();
         vm.label(Currency.unwrap(currency0), "currency0");
